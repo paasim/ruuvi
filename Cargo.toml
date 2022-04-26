@@ -1,0 +1,14 @@
+[package]
+name = "ruuvi"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bluez-async = "0.5.5"
+futures = "0.3.8"
+chrono = "0.4.19"
+chrono-tz = "0.6.1"
+tokio = { version = "1.17", features = ["macros", "rt-multi-thread"] }
+reqwest = { version = "0.11" }
