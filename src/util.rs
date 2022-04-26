@@ -13,8 +13,6 @@ impl Config {
     pub fn new(mut args: env::Args) -> Result<Config, &'static str> {
         let mut macs = Vec::new();
         args.next();
-            //"E7:4A:20:38:55:7F".to_string(),
-            //"C2:40:1D:B7:C4:C8".to_string(),
         let url = args.next().ok_or("No url specified")?;
         let endpoint = if url == "print-only" { None } else { Some(url) };
 
