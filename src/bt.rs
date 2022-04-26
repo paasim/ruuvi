@@ -24,11 +24,11 @@ pub async fn scan(config: Config) -> Result<(), Box<dyn Error>> {
             let ruuvi = Ruuvi::new(&data)?;
             let mac = ruuvi.mac();
             if cacher.see(&mac) {
-                if config.print_only {
-                    println!("{:?}", ruuvi);
-                } else {
+                if let Some(ref url) = config.endpoint {
                     println!("{} observed", mac);
-                    request::post(ruuvi.to_json(), &config.endpoint).await?;
+                    request::post(ruuvi.to_json(), &url).await?;
+                } else {
+                    println!("{:?}", ruuvi);
                 }
                 if cacher.all_seen() { break; }
             }

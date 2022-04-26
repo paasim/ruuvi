@@ -5,37 +5,28 @@ use std::env;
 
 #[derive(Debug)]
 pub struct Config {
-    pub endpoint: String,
+    pub endpoint: Option<String>,
     pub macs: Vec<String>,
-    pub print_only: bool,
 }
 
 impl Config {
     pub fn new(mut args: env::Args) -> Result<Config, &'static str> {
-        let mut print_only = false;
         let mut macs = Vec::new();
         args.next();
-        let mut nxt = args.next();
             //"E7:4A:20:38:55:7F".to_string(),
             //"C2:40:1D:B7:C4:C8".to_string(),
-        if nxt == Some("--echo".to_string()) {
-            print_only = true;
-            nxt = args.next();
-        }
-        let endpoint = nxt.ok_or("No url specified")?;
+        let url = args.next().ok_or("No url specified")?;
+        let endpoint = if url == "print-only" { None } else { Some(url) };
 
         while let Some(val) = args.next() {
             macs.push(val.to_uppercase());
         }
+
         if macs.is_empty() {
             return Err("Must have 1 or more mac addresses");
         }
 
-        Ok(Config {
-            endpoint,
-            macs,
-            print_only,
-        })
+        Ok(Config { endpoint, macs })
     }
 }
 
