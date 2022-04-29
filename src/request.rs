@@ -11,4 +11,3 @@ pub async fn post(body: String, url: &str) -> Result<(), Box<dyn Error>> {
         .await?;
     Ok(())
 }
-

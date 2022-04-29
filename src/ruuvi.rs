@@ -1,5 +1,5 @@
-use std::slice::Iter;
 use crate::util;
+use std::slice::Iter;
 
 #[derive(PartialEq, Debug)]
 pub struct Ruuvi {
@@ -42,7 +42,8 @@ impl Ruuvi {
         })
     }
     pub fn mac(&self) -> String {
-        self.mac.iter()
+        self.mac
+            .iter()
             .map(|b| format!("{:02X?}", b))
             .reduce(|mut acc, byte| {
                 acc.push(':');
