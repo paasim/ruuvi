@@ -1,9 +1,9 @@
+use crate::request;
+use crate::ruuvi::Ruuvi;
+use crate::util::{Cacher, Config};
 use bluez_async::{BluetoothEvent, BluetoothSession, DeviceEvent, DiscoveryFilter};
 use futures::stream::StreamExt;
 use std::error::Error;
-use crate::request;
-use crate::ruuvi::Ruuvi;
-use crate::util::{Config, Cacher};
 
 #[tokio::main]
 pub async fn scan(config: Config) -> Result<(), Box<dyn Error>> {
@@ -30,7 +30,9 @@ pub async fn scan(config: Config) -> Result<(), Box<dyn Error>> {
                 } else {
                     println!("{:?}", ruuvi);
                 }
-                if cacher.all_seen() { break; }
+                if cacher.all_seen() {
+                    break;
+                }
             }
         }
     }
@@ -43,10 +45,11 @@ fn get_manufacturer_data_for(event: BluetoothEvent, manufacturer: &u16) -> Optio
     match event {
         BluetoothEvent::Device {
             id: _id,
-            event: DeviceEvent::ManufacturerData { mut manufacturer_data },
-        } => {
-            manufacturer_data.remove(manufacturer)
-        }
-        _ => { None }
+            event:
+                DeviceEvent::ManufacturerData {
+                    mut manufacturer_data,
+                },
+        } => manufacturer_data.remove(manufacturer),
+        _ => None,
     }
 }
