@@ -1,7 +1,10 @@
-use crate::util;
+use chrono::Utc;
+use chrono_tz::Europe::Helsinki;
+use std::error::Error;
+use std::fmt::Display;
 use std::slice::Iter;
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Ruuvi {
     temperature: f64,
     humidity: f64,
@@ -15,20 +18,20 @@ pub struct Ruuvi {
 }
 
 impl Ruuvi {
-    pub fn new(data_vec: &[u8]) -> Result<Ruuvi, &str> {
+    pub fn new(data_vec: &[u8]) -> Result<Ruuvi, Box<dyn Error>> {
         let mut data = data_vec.iter();
         if *data.next().ok_or("No data format")? != 5 {
-            return Err("Data format is not v5.");
+            return Err("Data format is not v5.".into());
         }
-        let (temperature, data) = temp(data)?;
-        let (humidity, data) = humidity(data)?;
+        let temperature = temp(&mut data)?;
+        let humidity = humidity(&mut data)?;
 
-        let (air_pressure, data) = air_pressure(data)?;
-        let (acceleration, data) = acceleration(data)?;
-        let (voltage, tx_power, data) = ele(data)?;
-        let (movement, data) = movement(data)?;
-        let (measurement, data) = measurement(data)?;
-        let (mac, _) = mac(data)?;
+        let air_pressure = air_pressure(&mut data)?;
+        let acceleration = acceleration(&mut data)?;
+        let (voltage, tx_power) = ele(&mut data)?;
+        let movement = movement(&mut data)?;
+        let measurement = measurement(&mut data)?;
+        let mac = mac(&mut data)?;
         Ok(Ruuvi {
             temperature,
             humidity,
@@ -41,6 +44,7 @@ impl Ruuvi {
             mac,
         })
     }
+
     pub fn mac(&self) -> String {
         self.mac
             .iter()
@@ -52,110 +56,112 @@ impl Ruuvi {
             })
             .unwrap()
     }
+
     pub fn to_json(&self) -> String {
-        format!(
-            "{{\"time\": \"{}\", \"device_id\":\"{}\", \"temperature\":{}, \"humidity\": {}, \"air_pressure\":{}}}",
-            util::timestamp(),
-            self.mac(),
-            self.temperature,
-            self.humidity,
-            self.air_pressure
-        )
+        let now = Utc::now().with_timezone(&Helsinki).to_rfc3339();
+        let inner = [
+            format_field("time", now, true),
+            format_field("device_id", self.mac(), true),
+            format_field("temperature", self.temperature, false),
+            format_field("humidity", self.humidity, false),
+            format_field("air_pressure", self.air_pressure, false),
+        ]
+        .join(", ");
+        format!("{{ {} }}", inner)
     }
 }
 
-fn temp(mut data: Iter<u8>) -> Result<(f64, Iter<u8>), &str> {
-    let v1 = *data.next().ok_or("No temperature data.")?;
-    let v2 = *data.next().ok_or("No temperature data.")?;
-    if (v1, v2) == (0x80, 0x00) {
-        return Err("Invalid temperature.");
+fn format_field<T: Display>(name: &str, val: T, escape: bool) -> String {
+    if escape {
+        format!("\"{}\": {}", name, val)
+    } else {
+        format!("\"{}\": \"{}\"", name, val)
     }
-    let value = i16::from_be_bytes([v1, v2]);
-    Ok(((value as f64) * 0.005, data))
-}
-fn humidity(mut data: Iter<u8>) -> Result<(f64, Iter<u8>), &str> {
-    let v1 = *data.next().ok_or("No humidity data.")?;
-    let v2 = *data.next().ok_or("No humidity data.")?;
-    if (v1, v2) == (0xff, 0xff) {
-        return Err("Invalid humidity.");
-    }
-    let value = u16::from_be_bytes([v1, v2]);
-    Ok(((value as f64) * 0.0025, data))
 }
 
-fn air_pressure(mut data: Iter<u8>) -> Result<(u32, Iter<u8>), &str> {
-    let v1 = *data.next().ok_or("No air pressure data.")?;
-    let v2 = *data.next().ok_or("No air pressure data.")?;
-    if (v1, v2) == (0xff, 0xff) {
-        return Err("Invalid air pressure.");
-    }
-    let value = u16::from_be_bytes([v1, v2]);
-    Ok((50_000 + (value as u32), data))
+fn next_u8(data: &mut Iter<u8>, name: &str) -> Result<u8, Box<dyn Error>> {
+    data.next()
+        .map(|u| *u)
+        .ok_or(format!("No {} data.", name).into())
 }
 
-fn acceleration_help(v1: u8, v2: u8) -> Result<f64, &'static str> {
-    if (v1, v2) == (0x80, 0x00) {
-        return Err("Invalid acceleration.");
+fn next_two(data: &mut Iter<u8>, name: &str) -> Result<[u8; 2], Box<dyn Error>> {
+    Ok([next_u8(data, name)?, next_u8(data, name)?])
+}
+
+fn validate<T: PartialEq>(t: T, inv: T, name: &str) -> Result<T, Box<dyn Error>> {
+    if t != inv {
+        Ok(t)
+    } else {
+        Err(format!("Invalid {}.", name).into())
     }
-    let value = i16::from_be_bytes([v1, v2]);
+}
+
+fn temp(data: &mut Iter<u8>) -> Result<f64, Box<dyn Error>> {
+    let name = "temperature";
+    let v = next_two(data, name).and_then(|v| validate(v, [0x80, 0x00], name))?;
+    let value = i16::from_be_bytes(v);
+    Ok((value as f64) * 0.005)
+}
+
+fn humidity(data: &mut Iter<u8>) -> Result<f64, Box<dyn Error>> {
+    let name = "humidity";
+    let v = next_two(data, name).and_then(|v| validate(v, [0xff, 0xff], name))?;
+    let value = u16::from_be_bytes(v);
+    Ok((value as f64) * 0.0025)
+}
+
+fn air_pressure(data: &mut Iter<u8>) -> Result<u32, Box<dyn Error>> {
+    let name = "air_pressure";
+    let v = next_two(data, name).and_then(|v| validate(v, [0xff, 0xff], name))?;
+    let value = u16::from_be_bytes(v);
+    Ok(50_000 + (value as u32))
+}
+
+fn acceleration_d(data: &mut Iter<u8>) -> Result<f64, Box<dyn Error>> {
+    let name = "acceleration";
+    let v = next_two(data, name).and_then(|v| validate(v, [0x80, 0x00], name))?;
+    let value = i16::from_be_bytes(v);
     Ok((value as f64) * 0.001)
 }
-fn acceleration(mut data: Iter<u8>) -> Result<([f64; 3], Iter<u8>), &str> {
-    let v1 = *data.next().ok_or("No acceleration data.")?;
-    let v2 = *data.next().ok_or("No acceleration data.")?;
-    let v3 = *data.next().ok_or("No acceleration data.")?;
-    let v4 = *data.next().ok_or("No acceleration data.")?;
-    let v5 = *data.next().ok_or("No acceleration data.")?;
-    let v6 = *data.next().ok_or("No acceleration data.")?;
-    let x = acceleration_help(v1, v2)?;
-    let y = acceleration_help(v3, v4)?;
-    let z = acceleration_help(v5, v6)?;
-    Ok(([x, y, z], data))
+
+fn acceleration(data: &mut Iter<u8>) -> Result<[f64; 3], Box<dyn Error>> {
+    let x = acceleration_d(data)?;
+    let y = acceleration_d(data)?;
+    let z = acceleration_d(data)?;
+    Ok([x, y, z])
 }
 
-fn ele(mut data: Iter<u8>) -> Result<(f64, i8, Iter<u8>), &str> {
-    let v1 = *data.next().ok_or("No voltage data.")?;
-    let v2 = *data.next().ok_or("No transmission power data.")?;
+fn ele(data: &mut Iter<u8>) -> Result<(f64, i8), Box<dyn Error>> {
+    let v1 = next_u8(data, "voltage")?;
+    let v2 = next_u8(data, "transmission power")?;
     let voltage = u16::from_be_bytes([v1, v2]) >> 5;
     if voltage == 2047 {
-        return Err("Invalid voltage");
+        return Err("Invalid voltage".into());
     }
     let tx_power = u16::from_be_bytes([v1, v2]) & 0x1f;
     if tx_power == 31 {
-        return Err("Invalid transmission power");
+        return Err("Invalid transmission power".into());
     }
-    Ok((
-        (voltage as f64 + 1600.0) * 0.001,
-        (tx_power as i8) * 2 - 40,
-        data,
-    ))
+    Ok(((voltage as f64 + 1600.0) * 0.001, (tx_power as i8) * 2 - 40))
 }
 
-fn movement(mut data: Iter<u8>) -> Result<(u8, Iter<u8>), &str> {
-    let v = *data.next().ok_or("No movement data.")?;
-    if v == 0xff {
-        return Err("Invalid movement.");
-    }
-    Ok((v, data))
-}
-fn measurement(mut data: Iter<u8>) -> Result<(u16, Iter<u8>), &str> {
-    let v1 = *data.next().ok_or("No measurement data.")?;
-    let v2 = *data.next().ok_or("No measurement data.")?;
-    if (v1, v2) == (0xff, 0xff) {
-        return Err("Invalid measurement counter.");
-    }
-    let value = u16::from_be_bytes([v1, v2]);
-    Ok((value, data))
+fn movement(data: &mut Iter<u8>) -> Result<u8, Box<dyn Error>> {
+    let name = "movement";
+    next_u8(data, name).and_then(|v| validate(v, 0xff, name))
 }
 
-fn mac(mut data: Iter<u8>) -> Result<([u8; 6], Iter<u8>), &str> {
-    let v1 = *data.next().ok_or("No mac address data.")?;
-    let v2 = *data.next().ok_or("No mac address data.")?;
-    let v3 = *data.next().ok_or("No mac address data.")?;
-    let v4 = *data.next().ok_or("No mac address data.")?;
-    let v5 = *data.next().ok_or("No mac address data.")?;
-    let v6 = *data.next().ok_or("No mac address data.")?;
-    Ok(([v1, v2, v3, v4, v5, v6], data))
+fn measurement(data: &mut Iter<u8>) -> Result<u16, Box<dyn Error>> {
+    let name = "measurement";
+    let v = next_two(data, name).and_then(|v| validate(v, [0xff, 0xff], name))?;
+    Ok(u16::from_be_bytes(v))
+}
+
+fn mac(data: &mut Iter<u8>) -> Result<[u8; 6], Box<dyn Error>> {
+    let [v1, v2] = next_two(data, "mac address")?;
+    let [v3, v4] = next_two(data, "mac address")?;
+    let [v5, v6] = next_two(data, "mac address")?;
+    Ok([v1, v2, v3, v4, v5, v6])
 }
 
 #[cfg(test)]
@@ -180,7 +186,7 @@ mod tests {
             measurement: 205,
             mac: [0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f],
         };
-        assert_eq!(Ruuvi::new(&valid_record), Ok(valid_val));
+        assert_eq!(Ruuvi::new(&valid_record).unwrap(), valid_val);
     }
 
     #[test]
@@ -200,7 +206,7 @@ mod tests {
             measurement: 65534,
             mac: [0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f],
         };
-        assert_eq!(Ruuvi::new(&max_record), Ok(max_val));
+        assert_eq!(Ruuvi::new(&max_record).unwrap(), max_val);
     }
 
     #[test]
@@ -220,13 +226,16 @@ mod tests {
             measurement: 0,
             mac: [0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f],
         };
-        assert_eq!(Ruuvi::new(&min_record), Ok(min_val));
+        assert_eq!(Ruuvi::new(&min_record).unwrap(), min_val);
     }
 
     #[test]
     fn invalid_data() {
         let invalid_data: Vec<u8> = vec![0x05, 0x80, 0x01];
-        assert_eq!(Ruuvi::new(&invalid_data), Err("No humidity data."));
+        assert_eq!(
+            Ruuvi::new(&invalid_data).unwrap_err().to_string(),
+            "No humidity data.".to_string()
+        );
     }
 
     #[test]
@@ -235,6 +244,9 @@ mod tests {
             0x05, 0x80, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x80, 0x00, 0x80, 0x00, 0xFF,
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         ];
-        assert_eq!(Ruuvi::new(&invalid_record), Err("Invalid temperature."));
+        assert_eq!(
+            Ruuvi::new(&invalid_record).unwrap_err().to_string(),
+            "Invalid temperature.".to_string()
+        );
     }
 }
