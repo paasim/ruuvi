@@ -1,11 +1,12 @@
 use std::collections::HashSet;
+use std::hash::Hash;
 
-pub struct Cacher {
-    unseen: HashSet<String>,
+pub struct Cacher<T> {
+    unseen: HashSet<T>,
 }
 
-impl Cacher {
-    pub fn see(&mut self, s: &String) -> bool {
+impl<T: Eq+PartialEq+Hash> Cacher<T> {
+    pub fn see(&mut self, s: &T) -> bool {
         self.unseen.remove(s)
     }
 
@@ -14,8 +15,8 @@ impl Cacher {
     }
 }
 
-impl From<Vec<String>> for Cacher {
-    fn from(v: Vec<String>) -> Self {
+impl<T: Eq+PartialEq+Hash> From<Vec<T>> for Cacher<T> {
+    fn from(v: Vec<T>) -> Self {
         Self {
             unseen: v.into_iter().collect(),
         }

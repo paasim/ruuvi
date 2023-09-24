@@ -1,7 +1,7 @@
 use crate::cacher::Cacher;
 use crate::config::Config;
 use crate::ruuvi::Ruuvi;
-use bluez_async::{BluetoothEvent, BluetoothSession, DeviceEvent, DiscoveryFilter};
+use bluez_async::{BluetoothEvent, BluetoothSession, DeviceEvent, DiscoveryFilter, MacAddress};
 use futures::stream::StreamExt;
 use futures::Stream;
 use std::error::Error;
@@ -35,7 +35,7 @@ async fn start_discovery(
 
 async fn event_loop<E>(
     events: &mut E,
-    macs: Vec<String>,
+    macs: Vec<MacAddress>,
     endpoint: &Option<String>,
 ) -> Result<(), Box<dyn Error>>
 where

@@ -1,3 +1,4 @@
+use bluez_async::MacAddress;
 use chrono::Utc;
 use chrono_tz::Europe::Helsinki;
 use std::error::Error;
@@ -14,7 +15,7 @@ pub struct Ruuvi {
     tx_power: i8,
     movement: u8,
     measurement: u16,
-    mac: [u8; 6],
+    mac: MacAddress,
 }
 
 impl Ruuvi {
@@ -45,16 +46,8 @@ impl Ruuvi {
         })
     }
 
-    pub fn mac(&self) -> String {
+    pub fn mac(&self) -> MacAddress {
         self.mac
-            .iter()
-            .map(|b| format!("{:02X?}", b))
-            .reduce(|mut acc, byte| {
-                acc.push(':');
-                acc.push_str(&byte);
-                acc
-            })
-            .unwrap()
     }
 
     pub fn to_json(&self) -> String {
@@ -71,11 +64,11 @@ impl Ruuvi {
     }
 }
 
-fn format_field<T: Display>(name: &str, val: T, escape: bool) -> String {
-    if escape {
-        format!("\"{}\": {}", name, val)
-    } else {
+fn format_field<T: Display>(name: &str, val: T, quote: bool) -> String {
+    if quote {
         format!("\"{}\": \"{}\"", name, val)
+    } else {
+        format!("\"{}\": {}", name, val)
     }
 }
 
@@ -157,11 +150,11 @@ fn measurement(data: &mut Iter<u8>) -> Result<u16, Box<dyn Error>> {
     Ok(u16::from_be_bytes(v))
 }
 
-fn mac(data: &mut Iter<u8>) -> Result<[u8; 6], Box<dyn Error>> {
+fn mac(data: &mut Iter<u8>) -> Result<MacAddress, Box<dyn Error>> {
     let [v1, v2] = next_two(data, "mac address")?;
     let [v3, v4] = next_two(data, "mac address")?;
     let [v5, v6] = next_two(data, "mac address")?;
-    Ok([v1, v2, v3, v4, v5, v6])
+    Ok(MacAddress::from([v1, v2, v3, v4, v5, v6]))
 }
 
 #[cfg(test)]
@@ -184,7 +177,7 @@ mod tests {
             voltage: 2.977,
             movement: 66,
             measurement: 205,
-            mac: [0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f],
+            mac: MacAddress::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
         };
         assert_eq!(Ruuvi::new(&valid_record).unwrap(), valid_val);
     }
@@ -204,7 +197,7 @@ mod tests {
             voltage: 3.646,
             movement: 254,
             measurement: 65534,
-            mac: [0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f],
+            mac: MacAddress::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
         };
         assert_eq!(Ruuvi::new(&max_record).unwrap(), max_val);
     }
@@ -224,7 +217,7 @@ mod tests {
             voltage: 1.6,
             movement: 0,
             measurement: 0,
-            mac: [0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f],
+            mac: MacAddress::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
         };
         assert_eq!(Ruuvi::new(&min_record).unwrap(), min_val);
     }
