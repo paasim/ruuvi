@@ -11,12 +11,10 @@ pub async fn scan(config: Config) -> Result<(), Box<dyn Error>> {
     let (_, mut session) = BluetoothSession::new().await?;
     let mut events = start_discovery(&mut session).await?;
 
-    let (endpoint, macs) = config.destr();
-    println!("Scanning for devices {:?}:", macs);
-    event_loop(&mut events, macs, &endpoint).await?;
+    let mut cacher = Cacher::from(config.macs);
+    event_loop(&mut events, &mut cacher).await?;
 
     session.stop_discovery().await?;
-    println!("Scan stopped succesfully!");
     Ok(())
 }
 
@@ -33,42 +31,28 @@ async fn start_discovery(
     Ok(events)
 }
 
-async fn event_loop<E>(
+async fn event_loop<E: Stream<Item = BluetoothEvent> + std::marker::Unpin>(
     events: &mut E,
-    macs: Vec<MacAddress>,
-    endpoint: &Option<String>,
-) -> Result<(), Box<dyn Error>>
-where
-    E: Stream<Item = BluetoothEvent> + std::marker::Unpin,
-{
-    let cacher = &mut Cacher::from(macs);
+    cacher: &mut Cacher<MacAddress>,
+) -> Result<(), Box<dyn Error>> {
     while let Some(event) = events.next().await.as_mut() {
         if let Some(data) = get_data_for_manufacturer(event, &0x0499) {
-            let ruuvi = Ruuvi::new(&data)?;
-            let mac = ruuvi.mac();
-            if cacher.see(&mac) {
-                if let Some(url) = endpoint.as_ref() {
-                    println!("{} observed", mac);
-                    post(ruuvi.to_json(), &url).await?;
-                } else {
-                    println!("{:?}", ruuvi);
-                }
-                if cacher.all_seen() {
-                    break;
-                }
+            if data[0] != 5 {
+                continue;
+            }
+
+            let ruuvi = Ruuvi::from_rawv5(&data)?;
+            if cacher.has_cached(ruuvi.mac()) {
+                continue;
+            }
+
+            println!("{}", serde_json::to_string(&ruuvi)?);
+            if cacher.is_done() {
+                return Ok(());
             }
         }
     }
-    Ok(())
-}
-
-async fn post(body: String, url: &str) -> Result<reqwest::Response, Box<dyn Error>> {
-    Ok(reqwest::Client::new()
-        .post(url)
-        .header("Content-Type", "application/json")
-        .body(body)
-        .send()
-        .await?)
+    Err(String::from("unexpected end of events").into())
 }
 
 fn get_data_for_manufacturer(event: &mut BluetoothEvent, manufacturer: &u16) -> Option<Vec<u8>> {

@@ -1,11 +1,9 @@
 use bluez_async::MacAddress;
-use chrono::Utc;
-use chrono_tz::Europe::Helsinki;
+use serde::{Serialize, Serializer};
 use std::error::Error;
-use std::fmt::Display;
 use std::slice::Iter;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct Ruuvi {
     temperature: f64,
     humidity: f64,
@@ -15,11 +13,16 @@ pub struct Ruuvi {
     tx_power: i8,
     movement: u8,
     measurement: u16,
+    #[serde(serialize_with = "ser_mac")]
     mac: MacAddress,
 }
 
+pub fn ser_mac<S: Serializer>(mac: &MacAddress, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&mac.to_string())
+}
+
 impl Ruuvi {
-    pub fn new(data_vec: &[u8]) -> Result<Ruuvi, Box<dyn Error>> {
+    pub fn from_rawv5(data_vec: &[u8]) -> Result<Ruuvi, Box<dyn Error>> {
         let mut data = data_vec.iter();
         if *data.next().ok_or("No data format")? != 5 {
             return Err("Data format is not v5.".into());
@@ -46,29 +49,8 @@ impl Ruuvi {
         })
     }
 
-    pub fn mac(&self) -> MacAddress {
-        self.mac
-    }
-
-    pub fn to_json(&self) -> String {
-        let now = Utc::now().with_timezone(&Helsinki).to_rfc3339();
-        let inner = [
-            format_field("time", now, true),
-            format_field("device_id", self.mac(), true),
-            format_field("temperature", self.temperature, false),
-            format_field("humidity", self.humidity, false),
-            format_field("air_pressure", self.air_pressure, false),
-        ]
-        .join(", ");
-        format!("{{ {} }}", inner)
-    }
-}
-
-fn format_field<T: Display>(name: &str, val: T, quote: bool) -> String {
-    if quote {
-        format!("\"{}\": \"{}\"", name, val)
-    } else {
-        format!("\"{}\": {}", name, val)
+    pub fn mac(&self) -> &MacAddress {
+        &self.mac
     }
 }
 
@@ -179,7 +161,7 @@ mod tests {
             measurement: 205,
             mac: MacAddress::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
         };
-        assert_eq!(Ruuvi::new(&valid_record).unwrap(), valid_val);
+        assert_eq!(Ruuvi::from_rawv5(&valid_record).unwrap(), valid_val);
     }
 
     #[test]
@@ -199,7 +181,7 @@ mod tests {
             measurement: 65534,
             mac: MacAddress::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
         };
-        assert_eq!(Ruuvi::new(&max_record).unwrap(), max_val);
+        assert_eq!(Ruuvi::from_rawv5(&max_record).unwrap(), max_val);
     }
 
     #[test]
@@ -219,14 +201,14 @@ mod tests {
             measurement: 0,
             mac: MacAddress::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
         };
-        assert_eq!(Ruuvi::new(&min_record).unwrap(), min_val);
+        assert_eq!(Ruuvi::from_rawv5(&min_record).unwrap(), min_val);
     }
 
     #[test]
     fn invalid_data() {
         let invalid_data: Vec<u8> = vec![0x05, 0x80, 0x01];
         assert_eq!(
-            Ruuvi::new(&invalid_data).unwrap_err().to_string(),
+            Ruuvi::from_rawv5(&invalid_data).unwrap_err().to_string(),
             "No humidity data.".to_string()
         );
     }
@@ -238,7 +220,7 @@ mod tests {
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         ];
         assert_eq!(
-            Ruuvi::new(&invalid_record).unwrap_err().to_string(),
+            Ruuvi::from_rawv5(&invalid_record).unwrap_err().to_string(),
             "Invalid temperature.".to_string()
         );
     }

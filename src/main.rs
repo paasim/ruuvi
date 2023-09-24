@@ -8,11 +8,11 @@ mod ruuvi;
 
 fn main() {
     let config = Config::new(env::args()).unwrap_or_else(|e| {
-        eprintln!("Application error: {}", e);
+        eprintln!("{}", e);
         process::exit(1);
     });
     bt::scan(config).unwrap_or_else(|e| {
-        eprintln!("Application error: {}", e);
+        eprintln!("{}", e);
         process::exit(1);
     });
 }
