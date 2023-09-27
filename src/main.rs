@@ -1,9 +1,11 @@
 use config::Config;
 use std::{env, process};
 
-mod bt;
+mod advertisement;
 mod cacher;
 mod config;
+mod log;
+mod log_record;
 mod ruuvi;
 
 fn main() {
@@ -11,7 +13,13 @@ fn main() {
         eprintln!("{}", e);
         process::exit(1);
     });
-    bt::scan(config).unwrap_or_else(|e| {
+
+    match config {
+        Config::Latest(v) => advertisement::scan(Some(v)),
+        Config::Log(mac, n) => log::read(mac, n),
+        Config::Scan => advertisement::scan(None),
+    }
+    .unwrap_or_else(|e| {
         eprintln!("{}", e);
         process::exit(1);
     });

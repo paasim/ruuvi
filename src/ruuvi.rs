@@ -17,16 +17,14 @@ pub struct Ruuvi {
     mac: MacAddress,
 }
 
-pub fn ser_mac<S: Serializer>(mac: &MacAddress, s: S) -> Result<S::Ok, S::Error> {
+fn ser_mac<S: Serializer>(mac: &MacAddress, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&mac.to_string())
 }
 
 impl Ruuvi {
     pub fn from_rawv5(data_vec: &[u8]) -> Result<Ruuvi, Box<dyn Error>> {
         let mut data = data_vec.iter();
-        if *data.next().ok_or("No data format")? != 5 {
-            return Err("Data format is not v5.".into());
-        }
+        let _version = version(&mut data)?;
         let temperature = temp(&mut data)?;
         let humidity = humidity(&mut data)?;
 
@@ -72,6 +70,14 @@ fn validate<T: PartialEq>(t: T, inv: T, name: &str) -> Result<T, Box<dyn Error>>
     }
 }
 
+fn version(data: &mut Iter<u8>) -> Result<u8, Box<dyn Error>> {
+    let version = next_u8(data, "version")?;
+    if version != 5 {
+        return Err(format!("Invalid version {}.", version).into());
+    }
+    Ok(version)
+}
+
 fn temp(data: &mut Iter<u8>) -> Result<f64, Box<dyn Error>> {
     let name = "temperature";
     let v = next_two(data, name).and_then(|v| validate(v, [0x80, 0x00], name))?;
@@ -112,11 +118,11 @@ fn ele(data: &mut Iter<u8>) -> Result<(f64, i8), Box<dyn Error>> {
     let v2 = next_u8(data, "transmission power")?;
     let voltage = u16::from_be_bytes([v1, v2]) >> 5;
     if voltage == 2047 {
-        return Err("Invalid voltage".into());
+        return Err(format!("Invalid voltage {}", voltage).into());
     }
     let tx_power = u16::from_be_bytes([v1, v2]) & 0x1f;
     if tx_power == 31 {
-        return Err("Invalid transmission power".into());
+        return Err(format!("Invalid transmission power {}", tx_power).into());
     }
     Ok(((voltage as f64 + 1600.0) * 0.001, (tx_power as i8) * 2 - 40))
 }
@@ -202,6 +208,15 @@ mod tests {
             mac: MacAddress::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
         };
         assert_eq!(Ruuvi::from_rawv5(&min_record).unwrap(), min_val);
+    }
+
+    #[test]
+    fn invalid_version() {
+        let invalid_data: Vec<u8> = vec![0x02, 0x80, 0x01];
+        assert_eq!(
+            Ruuvi::from_rawv5(&invalid_data).unwrap_err().to_string(),
+            "Invalid version 2.".to_string()
+        );
     }
 
     #[test]
