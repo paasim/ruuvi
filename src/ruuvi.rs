@@ -47,8 +47,8 @@ impl Ruuvi {
         })
     }
 
-    pub fn mac(&self) -> &MacAddress {
-        &self.mac
+    pub fn mac(&self) -> MacAddress {
+        self.mac
     }
 }
 
