@@ -1,12 +1,13 @@
 [package]
 name = "ruuvi"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 bluez-async = "0.6"
+bluer = { version = "0.16.1", features = ["bluetoothd"] }
 futures = "0.3"
 chrono = "0.4.31"
 serde = "1.0"
