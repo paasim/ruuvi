@@ -1,11 +1,11 @@
-use bluez_async::MacAddress;
+use macaddr::MacAddr6;
 use std::env::Args;
 use std::error::Error;
 
 #[derive(Debug)]
 pub enum Config {
-    Latest(Vec<[u8; 6]>),
-    Log(MacAddress, u8),
+    Latest(Vec<MacAddr6>),
+    Log(MacAddr6, u8),
     Scan,
 }
 
@@ -22,7 +22,7 @@ impl Config {
 
     fn latest_config(args: Args) -> Result<Self, Box<dyn Error>> {
         args.into_iter()
-            .map(|s| parse_mac(&s))
+            .map(|s| Ok(s.parse()?)) //MacAddr6::from_str(&s))//parse_mac(&s))
             .collect::<Result<Vec<_>, _>>()
             .map(Self::Latest)
     }
@@ -35,13 +35,15 @@ impl Config {
     }
 }
 
+/*
 fn parse_mac(s: &str) -> Result<[u8; 6], Box<dyn Error>> {
     let v = s
         .split(':')
-        .map(|s| s.parse())
+        .map(|s| u8::from_str_radix(s, 16))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(v.as_slice().try_into()?)
 }
+    */
 
 fn get_usage(progname: &str) -> String {
     format!(
