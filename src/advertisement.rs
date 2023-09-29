@@ -2,6 +2,7 @@ use crate::ruuvi::Ruuvi;
 use bluer::monitor::{data_type, Monitor, MonitorEvent, MonitorHandle, Pattern};
 use bluer::{Adapter, DeviceEvent, DeviceProperty};
 use futures::StreamExt;
+use macaddr::MacAddr6;
 use std::collections::HashSet;
 use std::error::Error;
 
@@ -17,7 +18,7 @@ fn manufacturer_pattern(manufacturer_id: u16) -> Monitor {
 }
 
 #[tokio::main(flavor = "current_thread")]
-pub async fn scan(opt_macs: Option<Vec<[u8; 6]>>) -> Result<(), Box<dyn Error>> {
+pub async fn scan(opt_macs: Option<Vec<MacAddr6>>) -> Result<(), Box<dyn Error>> {
     let id = 0x0499;
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
@@ -35,7 +36,7 @@ async fn scan_cached(
     mh: &mut MonitorHandle,
     manufacturer_id: u16,
     adapter: &Adapter,
-    mut macs: HashSet<[u8; 6]>,
+    mut macs: HashSet<MacAddr6>,
 ) -> Result<(), Box<dyn Error>> {
     while let Some(mevt) = mh.next().await {
         let opt_data = match mevt {
@@ -49,7 +50,7 @@ async fn scan_cached(
         if let Some(data) = opt_data {
             let ruuvi = Ruuvi::from_rawv5(data.as_slice())?;
 
-            if macs.remove(&(<[u8; 6]>::from(ruuvi.mac()))) {
+            if macs.remove(&ruuvi.mac()) {
                 println!("{}", serde_json::to_string(&ruuvi)?);
             }
 

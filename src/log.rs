@@ -1,28 +1,32 @@
-use std::{ops::Sub, error::Error};
-
-use bluez_async::{
-    BluetoothEvent, BluetoothSession, CharacteristicEvent, DeviceId, DeviceInfo, MacAddress,
-};
+use bluer::gatt::remote::{Characteristic, Service};
+use bluer::{Adapter, AdapterEvent, Address, Device};
 use chrono::{Days, Utc};
+use futures::pin_mut;
 use futures::{stream::StreamExt, Stream};
-use tokio::time::{sleep, Duration};
+use macaddr::MacAddr6;
+use std::{error::Error, ops::Sub};
 use uuid::Uuid;
 
 use crate::log_record::{datetime_to_bytes, Measurement, MeasurementState};
 
 #[tokio::main(flavor = "current_thread")]
-pub async fn read(mac: MacAddress, n_days: u8) -> Result<(), Box<dyn Error>> {
-    let (_, session) = BluetoothSession::new().await?;
-    let device_info = get_device_info(&session, mac, 5, 3).await?;
+pub async fn read(mac: MacAddr6, n_days: u8) -> Result<(), Box<dyn Error>> {
+    let session = bluer::Session::new().await?;
+    let adapter = session.default_adapter().await?;
+    adapter.set_powered(true).await?;
 
-    try_to_connect(&session, &device_info.id, 3).await?;
+    let device = find_device(&adapter, mac).await?;
+    try_to_connect(&device, 3).await?;
 
-    let events_res = get_event_stream(&session, &device_info.id, n_days).await;
+    let events_res = get_event_stream(&device, n_days).await;
     let res = match events_res {
-        Ok(events) => handle_events(events).await,
+        Ok(events) => {
+            pin_mut!(events);
+            handle_events(events).await
+        }
         Err(e) => Err(e),
     };
-    try_to_disconnect(&session, &device_info.id, 3).await?;
+    try_to_disconnect(&device, 3).await?;
     res
 }
 
@@ -30,23 +34,32 @@ const UART_SVC: Uuid = Uuid::from_u128(0x6e400001b5a3f393e0a9e50e24dcca9e);
 const UART_RX: Uuid = Uuid::from_u128(0x6e400002b5a3f393e0a9e50e24dcca9e); // write
 const UART_TX: Uuid = Uuid::from_u128(0x6e400003b5a3f393e0a9e50e24dcca9e); // read
 
-async fn get_event_stream(
-    session: &BluetoothSession,
-    device_id: &DeviceId,
-    max_days: u8,
-) -> Result<impl Stream<Item = BluetoothEvent>, Box<dyn Error>> {
-    let uart_service = session.get_service_by_uuid(&device_id, UART_SVC).await?;
-    let recieve_characteristic = session
-        .get_characteristic_by_uuid(&uart_service.id, UART_TX)
-        .await?;
-    session.start_notify(&recieve_characteristic.id).await?;
-    let stream = session
-        .characteristic_event_stream(&recieve_characteristic.id)
-        .await?;
+async fn get_service(device: &Device, uuid: Uuid) -> Result<Service, Box<dyn Error>> {
+    for svc in device.services().await? {
+        if svc.uuid().await? == uuid {
+            return Ok(svc);
+        }
+    }
+    Err(format!("unable to find service with uuid {}", uuid).into())
+}
 
-    let send_characteristic = session
-        .get_characteristic_by_uuid(&uart_service.id, UART_RX)
-        .await?;
+async fn get_characteristic(svc: &Service, uuid: Uuid) -> Result<Characteristic, Box<dyn Error>> {
+    for char in svc.characteristics().await? {
+        if char.uuid().await? == uuid {
+            return Ok(char);
+        }
+    }
+    Err(format!("unable to find characteristic with uuid {}", uuid).into())
+}
+
+async fn get_event_stream(
+    device: &Device,
+    max_days: u8,
+) -> Result<impl Stream<Item = Vec<u8>>, Box<dyn Error>> {
+    let uart_svc = get_service(device, UART_SVC).await?;
+    let recv_char = get_characteristic(&uart_svc, UART_TX).await?;
+    let send_char = get_characteristic(&uart_svc, UART_RX).await?;
+    let stream = recv_char.notify().await?;
 
     let end_ts = Utc::now();
     let begin_ts = end_ts.sub(Days::new(max_days.into()));
@@ -56,71 +69,53 @@ async fn get_event_stream(
         datetime_to_bytes(begin_ts)?.as_slice(),
     ]
     .concat();
-    session
-        .write_characteristic_value(&send_characteristic.id, data)
-        .await?;
 
+    send_char.write(&data).await?;
     Ok(stream)
 }
 
-async fn try_to_connect(
-    session: &BluetoothSession,
-    device_id: &DeviceId,
-    max_tries: u8,
-) -> Result<(), Box<dyn Error>> {
-    for _ in 0..max_tries {
-        if let Ok(_) = session.connect(&device_id).await {
-            return Ok(());
+async fn find_device(adapter: &Adapter, mac: MacAddr6) -> Result<Device, Box<dyn Error>> {
+    let mac = Address::from(mac);
+    let mut discover = adapter.discover_devices().await?;
+    while let Some(evt) = discover.next().await {
+        match evt {
+            AdapterEvent::DeviceAdded(addr) if addr == mac => return Ok(adapter.device(addr)?),
+            _ => {}
         }
     }
-    Err(format!("connection failed after {} retries", max_tries).into())
+    Err("unable to find device".into())
 }
 
-async fn try_to_disconnect(
-    session: &BluetoothSession,
-    device_id: &DeviceId,
-    max_tries: u8,
-) -> Result<(), Box<dyn Error>> {
+async fn try_to_connect(device: &Device, max_tries: u8) -> Result<(), Box<dyn Error>> {
+    if !device.is_connected().await? {
+        for _ in 0..max_tries {
+            if device.connect().await.is_ok() {
+                return Ok(());
+            }
+        }
+        return Err(format!("unable to connect device after {}", max_tries).into());
+    }
+    return Ok(());
+}
+
+async fn try_to_disconnect(device: &Device, max_tries: u8) -> Result<(), Box<dyn Error>> {
     for _ in 0..max_tries {
-        if let Ok(_) = session.disconnect(&device_id).await {
+        if let Ok(_) = device.disconnect().await {
             return Ok(());
         }
     }
     Err(format!("disconnect failed after {} retries", max_tries).into())
 }
 
-async fn get_device_info(
-    session: &BluetoothSession,
-    mac: MacAddress,
-    scan_secs: u64,
-    n_scans: u8,
-) -> Result<DeviceInfo, Box<dyn Error>> {
-    for _ in 0..n_scans {
-        session.start_discovery().await?;
-        sleep(Duration::from_secs(scan_secs)).await;
-        session.stop_discovery().await?;
-
-        let devices = session.get_devices().await?;
-        if let Some(device) = devices.into_iter().find(|dev| dev.mac_address == mac) {
-            return Ok(device);
-        }
-    }
-    Err(format!("Device not found after {} scans.", n_scans).into())
-}
-
-async fn handle_events<E: Stream<Item = BluetoothEvent> + std::marker::Unpin>(
+async fn handle_events<E: Stream<Item = Vec<u8>> + std::marker::Unpin>(
     mut events: E,
 ) -> Result<(), Box<dyn Error>> {
     let mut state = MeasurementState::new();
-    while let Some(event) = events.next().await {
-        let value = match event {
-            BluetoothEvent::Characteristic {
-                event: CharacteristicEvent::Value { value },
-                ..
-            } if value.len() == 11 => value, // only values with correct length
-            _ => continue,
+    while let Some(v) = events.next().await {
+        if v.len() != 11 {
+            continue; // only values with correct length
         };
-        if let Some(meas) = Measurement::from_bytes(value.as_slice())? {
+        if let Some(meas) = Measurement::from_bytes(v.as_slice())? {
             state.update(meas)?;
         } else {
             return Ok(());

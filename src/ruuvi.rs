@@ -1,4 +1,4 @@
-use bluez_async::MacAddress;
+use macaddr::MacAddr6;
 use serde::{Serialize, Serializer};
 use std::error::Error;
 use std::slice::Iter;
@@ -14,10 +14,10 @@ pub struct Ruuvi {
     movement: u8,
     measurement: u16,
     #[serde(serialize_with = "ser_mac")]
-    mac: MacAddress,
+    mac: MacAddr6,
 }
 
-fn ser_mac<S: Serializer>(mac: &MacAddress, s: S) -> Result<S::Ok, S::Error> {
+fn ser_mac<S: Serializer>(mac: &MacAddr6, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&mac.to_string())
 }
 
@@ -47,7 +47,7 @@ impl Ruuvi {
         })
     }
 
-    pub fn mac(&self) -> MacAddress {
+    pub fn mac(&self) -> MacAddr6 {
         self.mac
     }
 }
@@ -58,8 +58,12 @@ fn next_u8(data: &mut Iter<u8>, name: &str) -> Result<u8, Box<dyn Error>> {
         .ok_or(format!("No {} data.", name).into())
 }
 
-fn next_two(data: &mut Iter<u8>, name: &str) -> Result<[u8; 2], Box<dyn Error>> {
-    Ok([next_u8(data, name)?, next_u8(data, name)?])
+fn next_n<const N: usize>(data: &mut Iter<u8>, name: &str) -> Result<[u8; N], Box<dyn Error>> {
+    let mut buf = [0; N];
+    for i in 0..N {
+        buf[i] = next_u8(data, name)?;
+    }
+    Ok(buf)
 }
 
 fn validate<T: PartialEq>(t: T, inv: T, name: &str) -> Result<T, Box<dyn Error>> {
@@ -80,28 +84,28 @@ fn version(data: &mut Iter<u8>) -> Result<u8, Box<dyn Error>> {
 
 fn temp(data: &mut Iter<u8>) -> Result<f64, Box<dyn Error>> {
     let name = "temperature";
-    let v = next_two(data, name).and_then(|v| validate(v, [0x80, 0x00], name))?;
+    let v = next_n(data, name).and_then(|v| validate(v, [0x80, 0x00], name))?;
     let value = i16::from_be_bytes(v);
     Ok((value as f64) * 0.005)
 }
 
 fn humidity(data: &mut Iter<u8>) -> Result<f64, Box<dyn Error>> {
     let name = "humidity";
-    let v = next_two(data, name).and_then(|v| validate(v, [0xff, 0xff], name))?;
+    let v = next_n(data, name).and_then(|v| validate(v, [0xff, 0xff], name))?;
     let value = u16::from_be_bytes(v);
     Ok((value as f64) * 0.0025)
 }
 
 fn air_pressure(data: &mut Iter<u8>) -> Result<u32, Box<dyn Error>> {
     let name = "air_pressure";
-    let v = next_two(data, name).and_then(|v| validate(v, [0xff, 0xff], name))?;
+    let v = next_n(data, name).and_then(|v| validate(v, [0xff, 0xff], name))?;
     let value = u16::from_be_bytes(v);
     Ok(50_000 + (value as u32))
 }
 
 fn acceleration_d(data: &mut Iter<u8>) -> Result<f64, Box<dyn Error>> {
     let name = "acceleration";
-    let v = next_two(data, name).and_then(|v| validate(v, [0x80, 0x00], name))?;
+    let v = next_n(data, name).and_then(|v| validate(v, [0x80, 0x00], name))?;
     let value = i16::from_be_bytes(v);
     Ok((value as f64) * 0.001)
 }
@@ -114,13 +118,12 @@ fn acceleration(data: &mut Iter<u8>) -> Result<[f64; 3], Box<dyn Error>> {
 }
 
 fn ele(data: &mut Iter<u8>) -> Result<(f64, i8), Box<dyn Error>> {
-    let v1 = next_u8(data, "voltage")?;
-    let v2 = next_u8(data, "transmission power")?;
-    let voltage = u16::from_be_bytes([v1, v2]) >> 5;
+    let v = next_n(data, "voltage and transmission power")?;
+    let voltage = u16::from_be_bytes(v) >> 5;
     if voltage == 2047 {
         return Err(format!("Invalid voltage {}", voltage).into());
     }
-    let tx_power = u16::from_be_bytes([v1, v2]) & 0x1f;
+    let tx_power = u16::from_be_bytes(v) & 0x1f;
     if tx_power == 31 {
         return Err(format!("Invalid transmission power {}", tx_power).into());
     }
@@ -134,15 +137,12 @@ fn movement(data: &mut Iter<u8>) -> Result<u8, Box<dyn Error>> {
 
 fn measurement(data: &mut Iter<u8>) -> Result<u16, Box<dyn Error>> {
     let name = "measurement";
-    let v = next_two(data, name).and_then(|v| validate(v, [0xff, 0xff], name))?;
+    let v = next_n(data, name).and_then(|v| validate(v, [0xff, 0xff], name))?;
     Ok(u16::from_be_bytes(v))
 }
 
-fn mac(data: &mut Iter<u8>) -> Result<MacAddress, Box<dyn Error>> {
-    let [v1, v2] = next_two(data, "mac address")?;
-    let [v3, v4] = next_two(data, "mac address")?;
-    let [v5, v6] = next_two(data, "mac address")?;
-    Ok(MacAddress::from([v1, v2, v3, v4, v5, v6]))
+fn mac(data: &mut Iter<u8>) -> Result<MacAddr6, Box<dyn Error>> {
+    next_n(data, "mac address").map(MacAddr6::from)
 }
 
 #[cfg(test)]
@@ -165,7 +165,7 @@ mod tests {
             voltage: 2.977,
             movement: 66,
             measurement: 205,
-            mac: MacAddress::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
+            mac: MacAddr6::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
         };
         assert_eq!(Ruuvi::from_rawv5(&valid_record).unwrap(), valid_val);
     }
@@ -185,7 +185,7 @@ mod tests {
             voltage: 3.646,
             movement: 254,
             measurement: 65534,
-            mac: MacAddress::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
+            mac: MacAddr6::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
         };
         assert_eq!(Ruuvi::from_rawv5(&max_record).unwrap(), max_val);
     }
@@ -205,7 +205,7 @@ mod tests {
             voltage: 1.6,
             movement: 0,
             measurement: 0,
-            mac: MacAddress::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
+            mac: MacAddr6::from([0xcb, 0xb8, 0x33, 0x4c, 0x88, 0x4f]),
         };
         assert_eq!(Ruuvi::from_rawv5(&min_record).unwrap(), min_val);
     }
