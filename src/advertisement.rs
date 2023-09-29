@@ -1,68 +1,92 @@
-use crate::cacher::Cacher;
 use crate::ruuvi::Ruuvi;
-use bluez_async::{BluetoothEvent, BluetoothSession, DeviceEvent, DiscoveryFilter, MacAddress};
-use futures::stream::StreamExt;
-use futures::Stream;
+use bluer::monitor::{data_type, Monitor, MonitorEvent, MonitorHandle, Pattern};
+use bluer::{Adapter, DeviceEvent, DeviceProperty};
+use futures::StreamExt;
+use std::collections::HashSet;
 use std::error::Error;
 
+fn manufacturer_pattern(manufacturer_id: u16) -> Monitor {
+    Monitor {
+        patterns: Some(vec![Pattern {
+            data_type: data_type::MANUFACTURER_SPECIFIC_DATA,
+            start_position: 0x00,
+            content: manufacturer_id.to_le_bytes().to_vec(),
+        }]),
+        ..Default::default()
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
-pub async fn scan(macs: Option<Vec<MacAddress>>) -> Result<(), Box<dyn Error>> {
-    let mut cacher = Cacher::from(macs);
+pub async fn scan(opt_macs: Option<Vec<[u8; 6]>>) -> Result<(), Box<dyn Error>> {
+    let id = 0x0499;
+    let session = bluer::Session::new().await?;
+    let adapter = session.default_adapter().await?;
+    let mm = adapter.monitor().await?;
+    adapter.set_powered(true).await?;
+    let mut mh = mm.register(manufacturer_pattern(id)).await?;
 
-    let (_, mut session) = BluetoothSession::new().await?;
-    let mut events = start_discovery(&mut session).await?;
-
-    let res = handle_events(&mut events, &mut cacher).await;
-
-    session.stop_discovery().await?;
-    res
+    match opt_macs {
+        Some(macs) => scan_cached(&mut mh, id, &adapter, macs.into_iter().collect()).await,
+        None => scan_everything(&mut mh, id, &adapter).await,
+    }
 }
 
-async fn start_discovery(
-    session: &mut BluetoothSession,
-) -> Result<impl Stream<Item = BluetoothEvent>, Box<dyn Error>> {
-    let events = session.event_stream().await?;
-    session
-        .start_discovery_with_filter(&DiscoveryFilter {
-            duplicate_data: Some(true),
-            ..DiscoveryFilter::default()
-        })
-        .await?;
-    Ok(events)
-}
-
-async fn handle_events<E: Stream<Item = BluetoothEvent> + std::marker::Unpin>(
-    events: &mut E,
-    cacher: &mut Cacher<MacAddress>,
+async fn scan_cached(
+    mh: &mut MonitorHandle,
+    manufacturer_id: u16,
+    adapter: &Adapter,
+    mut macs: HashSet<[u8; 6]>,
 ) -> Result<(), Box<dyn Error>> {
-    while let Some(event) = events.next().await.as_mut() {
-        let data = match get_data_for_manufacturer(event, &0x0499) {
-            Some(data) => data,
-            None => continue,
+    while let Some(mevt) = mh.next().await {
+        let opt_data = match mevt {
+            MonitorEvent::DeviceFound(d) => adapter
+                .device(d.device)?
+                .manufacturer_data()
+                .await?
+                .and_then(|mut md| md.remove(&manufacturer_id)),
+            _ => None,
         };
-        if data[0] != 5 {
-            continue;
-        }
+        if let Some(data) = opt_data {
+            let ruuvi = Ruuvi::from_rawv5(data.as_slice())?;
 
-        let ruuvi = Ruuvi::from_rawv5(&data)?;
-        if cacher.has_cached(ruuvi.mac()) {
-            continue;
-        }
+            if macs.remove(&(<[u8; 6]>::from(ruuvi.mac()))) {
+                println!("{}", serde_json::to_string(&ruuvi)?);
+            }
 
-        println!("{}", serde_json::to_string(&ruuvi)?);
-        if cacher.is_done() {
-            return Ok(());
-        }
+            if macs.is_empty() {
+                return Ok(());
+            }
+        };
     }
     Err("unexpected end of events".into())
 }
 
-fn get_data_for_manufacturer(event: &mut BluetoothEvent, manufacturer: &u16) -> Option<Vec<u8>> {
+async fn scan_everything(
+    mh: &mut MonitorHandle,
+    id: u16,
+    adapter: &Adapter,
+) -> Result<(), Box<dyn Error>> {
+    while let Some(mevt) = mh.next().await {
+        let dev = match mevt {
+            MonitorEvent::DeviceFound(devid) => adapter.device(devid.device)?,
+            _ => continue,
+        };
+        tokio::spawn(async move {
+            let mut events = dev.events().await.unwrap();
+            while let Some(data) = events.next().await.and_then(|e| get_md(e, id)) {
+                let ruuvi = Ruuvi::from_rawv5(data.as_slice()).unwrap();
+                println!("{}", serde_json::to_string(&ruuvi).unwrap());
+            }
+        });
+    }
+    Ok(())
+}
+
+fn get_md(event: DeviceEvent, manufacturer_id: u16) -> Option<Vec<u8>> {
     match event {
-        BluetoothEvent::Device {
-            event: DeviceEvent::ManufacturerData { manufacturer_data },
-            id: _,
-        } => manufacturer_data.remove(manufacturer),
+        DeviceEvent::PropertyChanged(DeviceProperty::ManufacturerData(mut md)) => {
+            md.remove(&manufacturer_id)
+        }
         _ => None,
     }
 }

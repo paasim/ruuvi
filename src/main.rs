@@ -2,7 +2,6 @@ use config::Config;
 use std::{env, process};
 
 mod advertisement;
-mod cacher;
 mod config;
 mod log;
 mod log_record;
