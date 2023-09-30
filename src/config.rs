@@ -22,7 +22,7 @@ impl Config {
 
     fn latest_config(args: Args) -> Result<Self, Box<dyn Error>> {
         args.into_iter()
-            .map(|s| Ok(s.parse()?)) //MacAddr6::from_str(&s))//parse_mac(&s))
+            .map(|s| Ok(s.parse()?))
             .collect::<Result<Vec<_>, _>>()
             .map(Self::Latest)
     }
@@ -35,19 +35,9 @@ impl Config {
     }
 }
 
-/*
-fn parse_mac(s: &str) -> Result<[u8; 6], Box<dyn Error>> {
-    let v = s
-        .split(':')
-        .map(|s| u8::from_str_radix(s, 16))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(v.as_slice().try_into()?)
-}
-    */
-
-fn get_usage(progname: &str) -> String {
+fn get_usage(program_name: &str) -> String {
     format!(
-        "usage: {} [--log mac n_days | --latest mac1 mac2 ...]",
-        progname
+        "usage: {} [--log mac n_hours | --latest mac1 mac2 ...]",
+        program_name
     )
 }

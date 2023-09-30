@@ -21,7 +21,7 @@ Usage
     # print rawv5 advertisements indefinitely
     cargo run -r
 
-    # print observation log for the last 2 (ruuvitags support at most 10) days
+    # print observation log for the last 2 (ruuvitags support at most 10 days (=240 hours)) hours
     cargo run -r -- --log AB:CD:EF:12:34:56 2
 
     # install package to cargo default install path
