@@ -23,3 +23,6 @@ Usage
 
     # print observation log for the last 2 (ruuvitags support at most 10) days
     cargo run -r -- --log AB:CD:EF:12:34:56 2
+
+    # install package to cargo default install path
+    make install
