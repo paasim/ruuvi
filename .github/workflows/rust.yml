@@ -1,4 +1,4 @@
-name: Rust
+name: build
 
 on:
   push:
@@ -11,11 +11,11 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v3
+    - name: install dependencies
+      run: sudo apt-get update && sudo apt-get install libdbus-1-dev
     - name: Build
       run: cargo build --verbose
     - name: Run tests
