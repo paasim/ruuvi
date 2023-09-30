@@ -1,6 +1,6 @@
 use bluer::gatt::remote::{Characteristic, Service};
 use bluer::{Adapter, AdapterEvent, Address, Device};
-use chrono::{Days, Utc};
+use chrono::{Duration, Utc};
 use futures::pin_mut;
 use futures::{stream::StreamExt, Stream};
 use macaddr::MacAddr6;
@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::log_record::{datetime_to_bytes, Measurement, MeasurementState};
 
 #[tokio::main(flavor = "current_thread")]
-pub async fn read(mac: MacAddr6, n_days: u8) -> Result<(), Box<dyn Error>> {
+pub async fn read(mac: MacAddr6, n_hours: u8) -> Result<(), Box<dyn Error>> {
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
@@ -18,7 +18,7 @@ pub async fn read(mac: MacAddr6, n_days: u8) -> Result<(), Box<dyn Error>> {
     let device = find_device(&adapter, mac).await?;
     try_to_connect(&device, 3).await?;
 
-    let events_res = get_event_stream(&device, n_days).await;
+    let events_res = get_event_stream(&device, n_hours).await;
     let res = match events_res {
         Ok(events) => {
             pin_mut!(events);
@@ -54,7 +54,7 @@ async fn get_characteristic(svc: &Service, uuid: Uuid) -> Result<Characteristic,
 
 async fn get_event_stream(
     device: &Device,
-    max_days: u8,
+    n_hours: u8,
 ) -> Result<impl Stream<Item = Vec<u8>>, Box<dyn Error>> {
     let uart_svc = get_service(device, UART_SVC).await?;
     let recv_char = get_characteristic(&uart_svc, UART_TX).await?;
@@ -62,7 +62,7 @@ async fn get_event_stream(
     let stream = recv_char.notify().await?;
 
     let end_ts = Utc::now();
-    let begin_ts = end_ts.sub(Days::new(max_days.into()));
+    let begin_ts = end_ts.sub(Duration::hours(n_hours.into()));
     let data = [
         &[0x3A, 0x3A, 0x11],
         datetime_to_bytes(end_ts)?.as_slice(),
