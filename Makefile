@@ -9,3 +9,6 @@ run:
 
 test:
 	cargo test
+
+install:
+	cargo install --path .
