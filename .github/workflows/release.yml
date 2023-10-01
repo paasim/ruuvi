@@ -1,0 +1,71 @@
+name: release
+on:
+  push:
+    tags:
+    - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      ruuvi_version: ${{ env.RUUVI_VERSION }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Get the release version from the tag
+        run: echo "RUUVI_VERSION=$GITHUB_REF_NAME" >> $GITHUB_ENV
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create ${{ env.RUUVI_VERSION }}
+
+  build-release:
+    name: build-release
+    needs: ['create-release']
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: install dependencies and build (x86_64)
+      if: matrix.arch == 'x86_64'
+      run: |
+        sudo apt-get update && sudo apt-get install libdbus-1-dev
+        cargo build --verbose --release
+        strip target/release/ruuvi
+        echo "INSTALL_PATH=target/release/ruuvi" >> $GITHUB_ENV
+
+    - name: install dependencies and build (arm64)
+      if: matrix.arch == 'arm64'
+      run: |
+        cargo install cross
+        cross build --verbose --release --target aarch64-unknown-linux-gnu
+        docker run --rm -v \
+          "$PWD/target:/target:Z" \
+          ghcr.io/cross-rs/aarch64-unknown-linux-gnu \
+          aarch64-linux-gnu-strip \
+          /target/aarch64-unknown-linux-gnu/release/ruuvi
+          echo "INSTALL_PATH=target/aarch64-unknown-linux-gnu/release/ruuvi" >> $GITHUB_ENV
+
+    - name: Build archive
+      shell: bash
+      run: |
+        staging="ruuvi-${{ needs.create-release.outputs.ruuvi_version }}-${{ matrix.arch }}"
+        mkdir -p "$staging"
+        cp README.md "$staging/"
+        cp "${{ env.INSTALL_PATH }}" "$staging/"
+        tar czf "$staging.tar.gz" "$staging"
+        echo "ASSET=$staging.tar.gz" >> $GITHUB_ENV
+
+    - name: Upload release archive
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release upload ${{ needs.create-release.outputs.ruuvi_version }} ${{ env.ASSET }}
