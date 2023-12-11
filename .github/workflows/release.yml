@@ -46,14 +46,13 @@ jobs:
     - name: install dependencies and build (arm64)
       if: matrix.arch == 'arm64'
       run: |
-        cargo install cross
-        cross build --verbose --release --target aarch64-unknown-linux-gnu
-        docker run --rm -v \
-          "$PWD/target:/target:Z" \
-          ghcr.io/cross-rs/aarch64-unknown-linux-gnu \
-          aarch64-linux-gnu-strip \
-          /target/aarch64-unknown-linux-gnu/release/ruuvi
-          echo "INSTALL_PATH=target/aarch64-unknown-linux-gnu/release/ruuvi" >> $GITHUB_ENV
+        # build the image for cross-compiling
+        ./arm64-cross/build.sh
+        docker run -u $(id -u):$(id -g) -v ${PWD}:/home/builder/rust-pkg --rm cross-compiler
+        docker run -u $(id -u):$(id -g) -v ${PWD}:/home/builder/rust-pkg --rm \
+          cross-compiler aarch64-linux-gnu-strip \
+          /home/builder/rust-pkg/target/aarch64-unknown-linux-gnu/release/ruuvi
+        echo "INSTALL_PATH=target/aarch64-unknown-linux-gnu/release/ruuvi" >> $GITHUB_ENV
 
     - name: Build archive
       shell: bash
