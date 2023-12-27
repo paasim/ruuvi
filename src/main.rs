@@ -1,11 +1,8 @@
 use config::Config;
+use ruuvi::advertisements;
 use std::{env, process};
 
-mod advertisement;
 mod config;
-mod log;
-mod log_record;
-mod ruuvi;
 
 fn main() {
     let config = Config::new(env::args()).unwrap_or_else(|e| {
@@ -14,9 +11,9 @@ fn main() {
     });
 
     match config {
-        Config::Latest(v) => advertisement::scan(Some(v)),
-        Config::Log(mac, n) => log::read(mac, n),
-        Config::Scan => advertisement::scan(None),
+        Config::Latest(v) => ruuvi::advertisements::print_advertisements(Some(v)),
+        Config::Log(mac, n) => ruuvi::log::print_log(mac, n),
+        Config::Scan => advertisements::print_advertisements(None),
     }
     .unwrap_or_else(|e| {
         eprintln!("{}", e);
