@@ -9,7 +9,7 @@ Dependencies
 
 Linux-only as it uses [BlueZ](https://github.com/bluez/bluez) for bluetooth and [BlueR](https://crates.io/crates/bluer) specifically as a rust-dependecy. `BlueR` also uses depends on `libdbus`.
 
-Some of the functionality (of `BlueR`) uses experimental B-Bus interfaces and might require `Experimental = true` in `/etc/bluetooth.main.conf`.
+Some of the functionality (of `BlueR`) uses experimental B-Bus interfaces and might require `Experimental = true` in `/etc/bluetooth/main.conf`.
 
 Usage
 -----
