@@ -3,6 +3,7 @@ use crate::err::{Error, Res};
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Serializer};
 
+/// Parsed record from the [logged history](https://docs.ruuvi.com/communication/bluetooth-connection/nordic-uart-service-nus/log-read).
 #[derive(Debug, PartialEq, Serialize)]
 pub struct Record {
     #[serde(serialize_with = "ser_dt")]

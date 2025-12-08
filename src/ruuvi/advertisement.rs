@@ -5,6 +5,7 @@ use macaddr::MacAddr6;
 use serde::{Serialize, Serializer};
 use std::slice::Iter;
 
+/// Parsed values from [bluetooth advertisements](https://docs.ruuvi.com/communication/bluetooth-advertisements).
 #[derive(Debug, PartialEq, Serialize)]
 pub struct Advertisement {
     pub temperature: f64,
