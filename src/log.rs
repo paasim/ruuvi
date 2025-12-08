@@ -1,9 +1,9 @@
 use crate::err::Res;
-use crate::ruuvi::{datetime_to_bytes, Measurement, Record};
+use crate::ruuvi::{Measurement, Record, datetime_to_bytes};
 use bluer::gatt::remote::{Characteristic, Service};
 use bluer::{Adapter, AdapterEvent, Address, Device};
 use chrono::{DateTime, Duration, Utc};
-use futures::{future, Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt, future};
 use macaddr::MacAddr6;
 use uuid::Uuid;
 
@@ -92,10 +92,10 @@ async fn find_device(adapter: &Adapter, mac: MacAddr6) -> Res<Device> {
     let mac = Address::from(mac);
     let mut discover = adapter.discover_devices().await?;
     while let Some(evt) = discover.next().await {
-        if let AdapterEvent::DeviceAdded(addr) = evt {
-            if addr == mac {
-                return Ok(adapter.device(addr)?);
-            }
+        if let AdapterEvent::DeviceAdded(addr) = evt
+            && addr == mac
+        {
+            return Ok(adapter.device(addr)?);
         }
     }
     Err("unable to find device")?

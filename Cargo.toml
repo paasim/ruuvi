@@ -1,14 +1,14 @@
 [package]
 name = "ruuvi"
-version = "0.5.0"
-edition = "2021"
+version = "0.6.0"
+edition = "2024"
 
 [dependencies]
-bluer = { version = "0.16.1", features = ["bluetoothd"] }
+bluer = { version = "0.17", features = ["bluetoothd"] }
 futures = "0.3"
-chrono = "0.4.31"
+chrono = "0.4"
 macaddr = { version = "1.0", features = ["serde_std"] }
 serde = "1.0"
 serde_json = "1.0"
-tokio = { version = "1.14", features = ["macros", "rt"] }
-uuid = "1.3"
+tokio = { version = "1.48", features = ["macros", "rt"] }
+uuid = "1.19"

@@ -1,6 +1,6 @@
 use crate::err::Res;
 use crate::ruuvi::Advertisement;
-use bluer::monitor::{data_type, Monitor, MonitorHandle, Pattern};
+use bluer::monitor::{Monitor, MonitorHandle, Pattern, data_type};
 use bluer::{Adapter, Device};
 use futures::StreamExt;
 use macaddr::MacAddr6;
